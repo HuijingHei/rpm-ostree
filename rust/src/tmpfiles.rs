@@ -23,6 +23,9 @@ const AUTOVAR_PATH: &str = "rpm-ostree-autovar.conf";
 pub fn deduplicate_tmpfiles_entries(tmprootfs_dfd: i32) -> CxxResult<()> {
     let tmprootfs_dfd = unsafe { ffiutil::ffi_dirfd(tmprootfs_dfd)? };
 
+    if !tmprootfs_dfd.try_exists(RPMOSTREE_TMPFILESD)? {
+        transfer_rpmostree_tmpfiles(&tmprootfs_dfd)?;
+    }
     // scan all rpm-ostree auto generated entries and save
     let tmpfiles_dir = tmprootfs_dfd
         .open_dir_optional(RPMOSTREE_TMPFILESD)
@@ -69,6 +72,47 @@ pub fn deduplicate_tmpfiles_entries(tmprootfs_dfd: i32) -> CxxResult<()> {
 
         let perms = Permissions::from_mode(0o644);
         tmpfiles_dir.atomic_write_with_perms(&AUTOVAR_PATH, entries.as_bytes(), perms)?;
+    }
+    Ok(())
+}
+
+#[context("Transfer rpm-ostree tmpfiles.d to {RPMOSTREE_TMPFILESD}")]
+fn transfer_rpmostree_tmpfiles(tmprootfs_dfd: &Dir) -> Result<()> {
+    let tmpfiles_dir = if let Some(d) = tmprootfs_dfd
+        .open_dir_optional(TMPFILESD)?
+    {
+        d
+    } else { return Ok(()); };
+
+    // Get pkg-xx.conf file list
+    let rpmostree_tmpfiles = tmpfiles_dir
+        .entries()?
+        .filter_map(|name| {
+            let name = name.unwrap().file_name();
+            let path = Path::new(&name).to_str()?;
+            if !path.starts_with("pkg-") {
+                return None;
+            }
+            Some(path.to_string())
+        })
+        .collect::<Vec<_>>();
+
+    if rpmostree_tmpfiles.is_empty() {
+        return Ok(());
+    } else {        
+        tmprootfs_dfd.create_dir_all(RPMOSTREE_TMPFILESD)?;
+        if let Some(rpmostree_tmpfiles_dir) = tmprootfs_dfd.open_dir_optional(RPMOSTREE_TMPFILESD)? {
+            rpmostree_tmpfiles
+                .into_iter()
+                .try_for_each(|s| -> Result<()> {
+                    let s1 = s.as_str();
+                    let (_, path) = s1
+                        .split_once('-')
+                        .ok_or_else(|| anyhow::anyhow!("Missing '-' in filename {}", s1))?;
+                    tmpfiles_dir.rename(&s, &rpmostree_tmpfiles_dir, &path)?;
+                    Ok(())
+                })?;
+        }
     }
     Ok(())
 }
@@ -187,6 +231,22 @@ q /var/tmp 1777 root root 30d
     fn test_deduplicate_emptydir() -> Result<()> {
         let root = &cap_std_ext::cap_tempfile::tempdir(cap_std::ambient_authority())?;
         deduplicate_tmpfiles_entries(root.as_raw_fd())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_transfer_rpmostree_tmpfiles() -> Result<()> {
+        let root = &cap_std_ext::cap_tempfile::tempdir(cap_std::ambient_authority())?;
+        root.create_dir_all(TMPFILESD)?;
+        let tmpfiles_dir = root.open_dir(TMPFILESD)?;
+        tmpfiles_dir.atomic_write("pkg-filesystem.conf", PKG_FILESYSTEM_CONTENTS)?;
+        tmpfiles_dir.atomic_write("pkg-tmp.conf", TMP_CONF)?;
+        transfer_rpmostree_tmpfiles(root)?;
+        assert!(!tmpfiles_dir.try_exists("pkg-filesystem.conf")?);
+        assert!(!tmpfiles_dir.try_exists("pkg-tmp.conf")?);
+        let rpmostree_tmpfiles_dir = root.open_dir(RPMOSTREE_TMPFILESD)?;
+        assert!(rpmostree_tmpfiles_dir.try_exists("filesystem.conf")?);
+        assert!(rpmostree_tmpfiles_dir.try_exists("tmp.conf")?);
         Ok(())
     }
 }
