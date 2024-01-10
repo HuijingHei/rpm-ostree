@@ -429,7 +429,7 @@ pub mod ffi {
             username: &str,
             groupname: &str,
         ) -> Result<()>;
-        fn has_tmpfiles_entries(self: &RpmImporter) -> bool;
+        fn has_tmpfiles_entries(self: &mut RpmImporter) -> bool;
         fn serialize_tmpfiles_content(self: &RpmImporter) -> String;
 
         fn tmpfiles_translate(
@@ -438,6 +438,12 @@ pub mod ffi {
             username: &str,
             groupname: &str,
         ) -> Result<String>;
+
+        fn rpmfi_tmpfiles_path_insert(
+            self: &mut RpmImporter,
+            abs_path: &str,
+            file_info: &GFileInfo,
+        ) -> Result<()>;
     }
 
     // initramfs.rs

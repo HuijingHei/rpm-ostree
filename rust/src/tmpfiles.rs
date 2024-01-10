@@ -106,6 +106,19 @@ fn read_tmpfiles(tmpfiles_dir: &Dir) -> Result<BTreeMap<String, String>> {
         .collect()
 }
 
+#[context("Get tmpfiles entries list")]
+pub fn tmpfiles_entries_maps<'a>(
+    contents: impl Iterator<Item = &'a str>,
+) -> Result<BTreeMap<String, String>> {
+    contents
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+        .map(|s| {
+            let entry = tmpfiles_entry_get_path(s)?;
+            anyhow::Ok((entry.to_string(), s.to_string()))
+        })
+        .collect()
+}
+
 #[context("Scan tmpfiles entries and get path")]
 fn tmpfiles_entry_get_path(line: &str) -> Result<&str> {
     line.split_whitespace()

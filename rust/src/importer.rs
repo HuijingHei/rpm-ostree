@@ -7,10 +7,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::cxxrsutil::{CxxResult, FFIGObjectWrapper};
+use crate::tmpfiles;
 use crate::utils;
 use anyhow::{anyhow, bail, format_err, Result};
 use bitflags::bitflags;
 use camino::{Utf8Path, Utf8PathBuf};
+use cap_std::fs::Dir;
 use fn_error_context::context;
 use gio::{FileInfo, FileType};
 use ostree::RepoCommitFilterResult;
@@ -18,6 +20,7 @@ use ostree_ext::{gio, ostree};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
+use std::path::Path;
 
 bitflags! {
     /// Flags to control the behavior of an RPM importer.
@@ -68,6 +71,8 @@ pub struct RpmImporter {
     rpmfi_overrides: HashMap<String, u64>,
     /// Filepaths translated to tmpfiles.d entries.
     tmpfiles_entries: Vec<String>,
+    // Tmpfile entries included in the package.
+    rpmfi_tmpfiles_path: Vec<String>,
 }
 
 /// Build a new RPM importer for a given package.
@@ -110,6 +115,7 @@ impl RpmImporter {
             varlib_direntries: BTreeSet::new(),
             rpmfi_overrides: HashMap::new(),
             tmpfiles_entries: vec![],
+            rpmfi_tmpfiles_path: vec![],
         };
         Ok(importer)
     }
@@ -269,7 +275,8 @@ impl RpmImporter {
     }
 
     /// Return whether this RPM has any auto-translated tmpfiles.d entries.
-    pub fn has_tmpfiles_entries(&self) -> bool {
+    pub fn has_tmpfiles_entries(&mut self) -> bool {
+        let _ = self.remove_duplicate_tmpfiles_entries();
         self.tmpfiles_entries
             .len()
             .saturating_add(self.opt_direntries.len())
@@ -286,6 +293,63 @@ impl RpmImporter {
             buf.push('\n');
             buf
         })
+    }
+
+    #[context("Insert tmpfiles entries")]
+    pub fn rpmfi_tmpfiles_path_insert(
+        &mut self,
+        path: &str,
+        file_info: &crate::FFIGFileInfo,
+    ) -> CxxResult<()> {
+        let file_info = file_info.glib_reborrow();
+        let filetype = file_info.file_type();
+
+        if filetype == FileType::Regular {
+            if let Some(extension) = Path::new(path).extension() {
+                if extension != "conf" {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+
+            let path = path.trim_start_matches('/');
+            self.rpmfi_tmpfiles_path.push(path.to_string());
+        }
+        Ok(())
+    }
+
+    #[context("Remove duplicated tmpfiles entries")]
+    fn remove_duplicate_tmpfiles_entries(&mut self) -> Result<()> {
+        if self.tmpfiles_entries.len() == 0 || self.rpmfi_tmpfiles_path.len() == 0 {
+            return Ok(());
+        }
+        println!("## package ##{}", self.pkg_name);
+        println!("before tmpfiles_entries vec list={:?}", self.tmpfiles_entries);
+        println!("before rpmfi_tmpfiles vec list={:?}", self.rpmfi_tmpfiles_path);
+        // rpm-ostree generated tempfiles entries
+        let mut rpmostree_tmpfiles_entries =
+            tmpfiles::tmpfiles_entries_maps(self.tmpfiles_entries.iter().map(|s| s.as_str()))?;
+        // rpmfi tempfiles entries
+        let rootdir = Dir::open_ambient_dir("/", cap_std::ambient_authority())?;
+        let rpmfi_tmpfiles_entries = self.rpmfi_tmpfiles_path
+            .iter()
+            .flat_map(|path| {
+                let contents = rootdir.read_to_string(&path).unwrap_or_default();
+                tmpfiles::tmpfiles_entries_maps(contents.lines())
+                    .unwrap()
+                    .into_keys()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<String>>();
+
+        println!("transfer rpmfi_tmpfiles entries list={:?}", self.rpmfi_tmpfiles_path);
+        for path in rpmfi_tmpfiles_entries {
+            rpmostree_tmpfiles_entries.retain(|k, _value| k != &path);
+        }
+        self.tmpfiles_entries = rpmostree_tmpfiles_entries.into_values().collect();
+        println!("finally tmpfiles_entries vec list={:?}", self.tmpfiles_entries);
+        Ok(())
     }
 }
 

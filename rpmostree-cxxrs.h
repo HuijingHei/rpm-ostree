@@ -1359,6 +1359,8 @@ struct RpmImporter final : public ::rust::Opaque
                                     ::rust::Str username, ::rust::Str groupname);
   bool has_tmpfiles_entries () const noexcept;
   ::rust::String serialize_tmpfiles_content () const noexcept;
+  void rpmfi_tmpfiles_path_insert (::rust::Str abs_path,
+                                   ::rpmostreecxx::GFileInfo const &file_info) noexcept;
   ~RpmImporter () = delete;
 
 private:

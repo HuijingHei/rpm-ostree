@@ -1577,6 +1577,8 @@ struct RpmImporter final : public ::rust::Opaque
                                     ::rust::Str username, ::rust::Str groupname);
   bool has_tmpfiles_entries () const noexcept;
   ::rust::String serialize_tmpfiles_content () const noexcept;
+  void rpmfi_tmpfiles_path_insert (::rust::Str abs_path,
+                                   ::rpmostreecxx::GFileInfo const &file_info) noexcept;
   ~RpmImporter () = delete;
 
 private:
@@ -2358,6 +2360,10 @@ extern "C"
   ::rust::repr::PtrLen rpmostreecxx$cxxbridge1$tmpfiles_translate (
       ::rust::Str abs_path, ::rpmostreecxx::GFileInfo const &file_info, ::rust::Str username,
       ::rust::Str groupname, ::rust::String *return$) noexcept;
+
+  void rpmostreecxx$cxxbridge1$RpmImporter$rpmfi_tmpfiles_path_insert (
+      ::rpmostreecxx::RpmImporter &self, ::rust::Str abs_path,
+      ::rpmostreecxx::GFileInfo const &file_info) noexcept;
 
   ::rust::repr::PtrLen
   rpmostreecxx$cxxbridge1$append_dracut_random_cpio (::std::int32_t fd) noexcept;
@@ -4437,6 +4443,13 @@ RpmImporter::serialize_tmpfiles_content () const noexcept
   ::rust::MaybeUninit< ::rust::String> return$;
   rpmostreecxx$cxxbridge1$RpmImporter$serialize_tmpfiles_content (*this, &return$.value);
   return ::std::move (return$.value);
+}
+
+void
+RpmImporter::rpmfi_tmpfiles_path_insert (::rust::Str abs_path,
+                                         ::rpmostreecxx::GFileInfo const &file_info) noexcept
+{
+  rpmostreecxx$cxxbridge1$RpmImporter$rpmfi_tmpfiles_path_insert (*this, abs_path, file_info);
 }
 
 ::rust::String

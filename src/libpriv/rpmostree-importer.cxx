@@ -476,6 +476,9 @@ compose_filter_cb (OstreeRepo *repo, const char *path, GFileInfo *file_info, gpo
   RpmOstreeImporter *self = ((cb_data *)user_data)->self;
   GError **error = ((cb_data *)user_data)->error;
 
+  if (g_str_has_prefix (path, "/usr/lib/tmpfiles.d/"))
+    CXX ((*self->importer_rs)->rpmfi_tmpfiles_path_insert (path, *file_info), error);
+
   /* Are we filtering out docs?  Let's check that first */
   if ((*self->importer_rs)->doc_files_are_filtered ()
       && (*self->importer_rs)->doc_files_contains (path))
